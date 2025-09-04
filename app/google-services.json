@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "696991561120",
+    "project_id": "ecoriego-f38b6",
+    "storage_bucket": "ecoriego-f38b6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:696991561120:android:704b7f52a2d5f792d960c5",
+        "android_client_info": {
+          "package_name": "com.tesis.ecoriego"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDuPRvCn02Y9VFihPLjoWJxNRjuWgjDSHU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
