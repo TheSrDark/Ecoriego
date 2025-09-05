@@ -31,6 +31,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+
 
 /* ========= Datos y enums ========= */
 
@@ -90,11 +97,22 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/* ========= App ========= */
+/* ========= App con Firebase Auth ========= */
 
 @Composable
 fun EcoriegoApp() {
-    var loggedIn by remember { mutableStateOf(false) }
+    val auth = remember { com.google.firebase.auth.FirebaseAuth.getInstance() }
+    var user by remember { mutableStateOf(auth.currentUser) }
+
+    // Escucha del estado de sesión
+    DisposableEffect(Unit) {
+        val listener = com.google.firebase.auth.FirebaseAuth.AuthStateListener { fb ->
+            user = fb.currentUser
+        }
+        auth.addAuthStateListener(listener)
+        onDispose { auth.removeAuthStateListener(listener) }
+    }
+
     var header by remember { mutableStateOf("Iniciar Sesión") }
     var currentTab by remember { mutableStateOf(Tab.Dashboard) }
     var currentZone by remember { mutableStateOf(Zone.VillaAlemana) }
@@ -102,7 +120,7 @@ fun EcoriegoApp() {
     MaterialTheme(colorScheme = lightColorScheme()) {
         Scaffold(
             bottomBar = {
-                if (loggedIn) {
+                if (user != null) {
                     NavigationBar(containerColor = Color(0xFF10B981)) {
                         NavigationBarItem(
                             selected = currentTab == Tab.Dashboard,
@@ -130,7 +148,7 @@ fun EcoriegoApp() {
                         )
                         NavigationBarItem(
                             selected = false,
-                            onClick = { loggedIn = false },
+                            onClick = { AuthRepo().signOut() }, // << salir de verdad
                             icon = { Icon(Icons.Filled.PowerSettingsNew, null, tint = Color.White) },
                             label = { Text("Salir", color = Color.White) }
                         )
@@ -149,10 +167,7 @@ fun EcoriegoApp() {
                             .background(Color(0xFF10B981))
                             .padding(20.dp)
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                             Text("Ecoriego", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
                             Text(header, color = Color.White, fontSize = 16.sp)
                         }
@@ -160,7 +175,6 @@ fun EcoriegoApp() {
 
                     Spacer(Modifier.height(12.dp))
 
-                    // Contenido
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -168,17 +182,9 @@ fun EcoriegoApp() {
                             .clip(RoundedCornerShape(24.dp))
                             .background(Color.White)
                     ) {
-                        if (!loggedIn) {
-                            header = "Iniciar Sesión"
-                            LoginScreen(
-                                onLogin = { user, pass ->
-                                    if (user.isNotBlank() && pass.isNotBlank()) {
-                                        loggedIn = true
-                                        header = "Panel de Control"
-                                        currentTab = Tab.Dashboard
-                                    }
-                                }
-                            )
+                        if (user == null) {
+                            header = "Iniciar/Crear cuenta"
+                            AuthScreen() // << NUEVO login/registro real
                         } else {
                             when (currentTab) {
                                 Tab.Dashboard -> { header = "Panel de Control"; DashboardScreen(currentZone) }
@@ -194,13 +200,19 @@ fun EcoriegoApp() {
     }
 }
 
-/* ========= Pantallas ========= */
+
+/* ========= Login / Registro (Firebase) ========= */
 
 @Composable
-fun LoginScreen(onLogin: (String, String) -> Unit) {
-    var user by remember { mutableStateOf("") }
+fun AuthScreen(repo: AuthRepo = AuthRepo()) {
+    var isLogin by remember { mutableStateOf(true) }
+
+    var name by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
     var pass by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(false) }
+    var passVisible by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -208,37 +220,162 @@ fun LoginScreen(onLogin: (String, String) -> Unit) {
             .padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Spacer(Modifier.height(8.dp))
+        Text(
+            if (isLogin) "Iniciar Sesión" else "Crear Cuenta",
+            fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Color(0xFF1F2937)
+        )
         Spacer(Modifier.height(16.dp))
-        Text("Bienvenido", fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Color(0xFF1F2937))
-        Text("Por favor, inicia sesión para continuar.", color = Color(0xFF6B7280))
-        Spacer(Modifier.height(24.dp))
+
+        if (!isLogin) {
+            OutlinedTextField(
+                value = name, onValueChange = { name = it },
+                label = { Text("Nombre") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(12.dp))
+        }
 
         OutlinedTextField(
-            value = user, onValueChange = { user = it },
-            label = { Text("Usuario") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+            value = email, onValueChange = { email = it },
+            label = { Text("Email") }, singleLine = true, modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(12.dp))
+
         OutlinedTextField(
-            value = pass, onValueChange = { pass = it },
-            label = { Text("Contraseña") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+            value = pass,
+            onValueChange = { pass = it },
+            label = { Text("Contraseña") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            visualTransformation = if (passVisible) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                IconButton(onClick = { passVisible = !passVisible }) {
+                    Icon(
+                        imageVector = if (passVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                        contentDescription = if (passVisible) "Ocultar" else "Mostrar"
+                    )
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
         )
 
         if (error != null) {
-            Text(error!!, color = Color.Red, modifier = Modifier.padding(top = 8.dp))
+            Spacer(Modifier.height(8.dp))
+            Text(error!!, color = Color.Red)
         }
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(16.dp))
         Button(
             modifier = Modifier.fillMaxWidth(),
+            enabled = !loading,
             onClick = {
-                if (user.isBlank() || pass.isBlank()) error = "Ingresa usuario y contraseña."
-                else onLogin(user, pass)
+                error = null
+                loading = true
+                if (isLogin) {
+                    repo.signIn(email, pass) { result ->
+                        loading = false
+                        error = result.exceptionOrNull()?.localizedMessage
+                    }
+                } else {
+                    if (name.isBlank()) {
+                        loading = false
+                        error = "Ingresa tu nombre."
+                    } else {
+                        repo.signUp(name, email, pass) { result ->
+                            loading = false
+                            error = result.exceptionOrNull()?.localizedMessage
+                        }
+                    }
+                }
             },
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
-        ) { Text("Iniciar Sesión") }
+        ) { Text(if (isLogin) "Entrar" else "Crear cuenta") }
+
+        TextButton(onClick = { isLogin = !isLogin }) {
+            Text(if (isLogin) "¿No tienes cuenta? Regístrate" else "¿Ya tienes cuenta? Inicia sesión")
+        }
     }
 }
+
+
+@Composable
+fun RegisterScreen(onRegistered: () -> Unit, onCancel: () -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var pass by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(false) }
+    var passVisible by remember { mutableStateOf(false) }
+
+    val repo = remember { AuthRepo() }
+
+    Column(
+        Modifier.fillMaxSize().padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(Modifier.height(16.dp))
+        Text("Crear Cuenta", fontWeight = FontWeight.Bold, fontSize = 22.sp)
+        Spacer(Modifier.height(24.dp))
+
+        OutlinedTextField(
+            value = name, onValueChange = { name = it },
+            label = { Text("Nombre") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = email, onValueChange = { email = it },
+            label = { Text("Email") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = pass,
+            onValueChange = { pass = it },
+            label = { Text("Contraseña (6+)") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            visualTransformation = if (passVisible) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                IconButton(onClick = { passVisible = !passVisible }) {
+                    Icon(
+                        imageVector = if (passVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                        contentDescription = if (passVisible) "Ocultar" else "Mostrar"
+                    )
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        if (error != null) Text(error!!, color = Color.Red, modifier = Modifier.padding(top = 8.dp))
+
+        Spacer(Modifier.height(20.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text("Cancelar") }
+            Button(
+                onClick = {
+                    if (name.isBlank() || email.isBlank() || pass.length < 6) {
+                        error = "Nombre, email válido y contraseña (6+)"
+                        return@Button
+                    }
+                    loading = true
+                    repo.signUp(name, email, pass) { result ->
+                        loading = false
+                        if (result.isSuccess) onRegistered()
+                        else error = result.exceptionOrNull()?.localizedMessage ?: "Error al registrar"
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                enabled = !loading,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+            ) { Text(if (loading) "Creando..." else "Crear cuenta") }
+        }
+    }
+}
+
+
+
+/* ========= Pantallas ========= */
 
 @Composable
 fun DashboardScreen(currentZone: Zone) {
@@ -400,6 +537,7 @@ fun DashboardScreen(currentZone: Zone) {
                 val anyDay = dayChecks.any { it }
                 val liters = waterLiters.toIntOrNull()
                 if (anyDay && startTime.matches(Regex("""^\d{2}:\d{2}$""")) && liters != null && liters > 0) {
+
                     nextEvent = nextEventText()
                     alerts += AlertItem(AlertType.Settings, "¡Configuración guardada! $nextEvent")
                 } else {
@@ -468,7 +606,6 @@ fun ReportsScreen(currentZone: Zone) {
                 .height(220.dp)
             ) {
                 val usableWidth = size.width - leftPaddingPx - 16f
-                val groupWidth = (barWidthPx * 2 + gapPx) // por si quieres usarlo después
                 val spacePerGroup = usableWidth / labels.size
                 val baseY = size.height - 20f
                 val maxH = chartHeightPx
@@ -508,22 +645,41 @@ fun ReportsScreen(currentZone: Zone) {
 
 @Composable
 fun ProfileScreen(currentZone: Zone) {
+    val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
+    val user = auth.currentUser
+    val repo = remember { AuthRepo() }
+
+    // Nombre inicial desde Firebase (o el prefijo del email)
+    var displayName by remember {
+        mutableStateOf(
+            user?.displayName ?: user?.email?.substringBefore('@') ?: "Usuario"
+        )
+    }
+    val email = user?.email ?: "—"
+
     var monthlyGoal by remember { mutableStateOf(5000) }
     val currentSavings = climateData[currentZone]!!.savings.third
 
-    var displayName by remember { mutableStateOf("Juan Pérez") }
-    val initials = remember(displayName) {
-        val parts = displayName.trim().split(" ").filter { it.isNotBlank() }
-        when (parts.size) {
-            0 -> ""
-            1 -> parts[0].first().uppercase()
-            else -> (parts.first().first().toString() + parts.last().first()).uppercase()
+    var inputGoal by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf("") }
+    var savingName by remember { mutableStateOf(false) } // loading para guardar nombre
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        // Avatar simple con iniciales
+        val initials = remember(displayName) {
+            displayName.trim().split(" ").filter { it.isNotBlank() }.let { parts ->
+                when (parts.size) {
+                    0 -> ""
+                    1 -> parts[0].first().uppercase()
+                    else -> (parts.first().first().toString() + parts.last().first()).uppercase()
+                }
+            }
         }
-    }
-
-    val progress = (currentSavings.toFloat() / monthlyGoal.toFloat()).coerceAtMost(1f)
-
-    Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
         Box(
             modifier = Modifier
                 .size(96.dp)
@@ -533,17 +689,52 @@ fun ProfileScreen(currentZone: Zone) {
         ) {
             Text(initials, fontSize = 28.sp, color = Color(0xFF6B7280), fontWeight = FontWeight.Bold)
         }
+
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(
-            value = displayName, onValueChange = { displayName = it },
-            label = { Text("Nombre a mostrar") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+            value = displayName,
+            onValueChange = { displayName = it },
+            label = { Text("Nombre a mostrar") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
         )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = email, onValueChange = {}, enabled = false,
+            label = { Text("Email") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(Modifier.height(8.dp))
+        Button(
+            onClick = {
+                val newName = displayName.trim()
+                if (newName.isEmpty()) {
+                    message = "Ingresa un nombre válido."
+                    return@Button
+                }
+                savingName = true
+                message = ""
+                repo.updateDisplayName(newName) { result ->
+                    savingName = false
+                    message = if (result.isSuccess)
+                        "Nombre actualizado."
+                    else
+                        "Error: " + (result.exceptionOrNull()?.localizedMessage ?: "intenta nuevamente")
+                }
+            },
+            enabled = !savingName,
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFA3E635)),
+            modifier = Modifier.fillMaxWidth()
+        ) { Text(if (savingName) "Guardando..." else "Guardar Nombre") }
+
+        if (message.isNotBlank()) {
+            Spacer(Modifier.height(6.dp))
+            Text(message)
+        }
 
         Spacer(Modifier.height(16.dp))
         Text("Mi Meta de Ahorro", fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        var inputGoal by remember { mutableStateOf("") }
-        var message by remember { mutableStateOf("") }
         OutlinedTextField(
             value = inputGoal, onValueChange = { inputGoal = it },
             label = { Text("Meta mensual (litros)") },
@@ -555,12 +746,9 @@ fun ProfileScreen(currentZone: Zone) {
         Button(
             onClick = {
                 val g = inputGoal.toIntOrNull()
-                if (g != null && g > 0) {
-                    monthlyGoal = g
-                    message = "¡Meta actualizada a $monthlyGoal L!"
-                } else {
-                    message = "Ingresa un número válido mayor que 0."
-                }
+                message = if (g != null && g > 0) {
+                    monthlyGoal = g; "¡Meta actualizada a $monthlyGoal L!"
+                } else "Ingresa un número válido mayor que 0."
             },
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFA3E635)),
             modifier = Modifier.fillMaxWidth()
@@ -568,6 +756,7 @@ fun ProfileScreen(currentZone: Zone) {
 
         Spacer(Modifier.height(12.dp))
         Text("Progreso Actual", fontWeight = FontWeight.SemiBold)
+        val progress = (currentSavings.toFloat() / monthlyGoal.toFloat()).coerceAtMost(1f)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -583,14 +772,12 @@ fun ProfileScreen(currentZone: Zone) {
             )
         }
         Text("${currentSavings}L ahorrados de ${monthlyGoal}L", fontWeight = FontWeight.SemiBold, color = Color(0xFF15803D))
-        if (message.isNotBlank()) {
-            Spacer(Modifier.height(8.dp))
-            Text(message)
-        }
 
         Spacer(Modifier.height(80.dp))
     }
 }
+
+
 
 @Composable
 fun AlertsScreen() {

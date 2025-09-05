@@ -56,7 +56,9 @@ dependencies {
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-firestore-ktx")
 
-    //implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // no lo usamos hoy, pero queda listo
+    implementation("com.squareup.okhttp3:okhttp:4.12.0") // la usaremos con Open-Meteo
 
 
     // Tests / debug
